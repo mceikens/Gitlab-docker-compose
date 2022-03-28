@@ -1,0 +1,103 @@
+version: '3.6'
+services:
+  gitlab_core:
+    image: 'gitlab/gitlab-ce:latest'
+    container_name: gitlab_core
+    restart: always
+    hostname: 'YOUR_HOSTNAME'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://YOUR_DOMAIN.TLD'
+        gitlab_rails['gitlab_shell_ssh_port'] = YOUR_PORT
+        nginx['listen_port'] = 443
+        nginx['listen_https'] = true
+        nginx['redirect_http_to_https'] = true
+        nginx['ssl_certificate_key'] = "/etc/gitlab/trusted-certs/YOUR_SSL_KEY.key.pem"
+        nginx['ssl_certificate'] = "/etc/gitlab/trusted-certs/YOUR_SSL_CERTIFICATE.crt.pem"
+        nginx['ssl_protocols'] = "TLSv1.1 TLSv1.2"
+        gitlab_rails['smtp_enable'] = true
+        gitlab_rails['smtp_address'] = "YOUR_SMTP_SERVER"
+        gitlab_rails['smtp_port'] = YOUR_SMTP_PORT
+        gitlab_rails['smtp_user_name'] = "YOUR_MAIL"
+        gitlab_rails['smtp_password'] = "YOUR_MAIL_PASSWORD"
+        gitlab_rails['smtp_domain'] = "YOUR_SMTP_DOMAIN"
+        gitlab_rails['smtp_tls'] = true
+        gitlab_rails['smtp_authentication'] = "login"
+        gitlab_rails['gitlab_email_from'] = 'YOUR_MAIL'
+        gitlab_rails['gitlab_email_reply_to'] = 'YOUR_MAIL'
+        letsencrypt['enable'] = false
+        registry_nginx['enable'] = true
+        gitlab_rails['registry_enabled'] = true
+        gitlab_rails['registry_host'] = "YOUR_PERSONAL_REGISTRY"
+        gitlab_rails['registry_port'] = 5000
+        gitlab_rails['registry_api_url'] = "https://YOUR_PERSONAL_REGISTRY:5000"
+        gitlab_rails['registry_external_url'] = "https://YOUR_PERSONAL_REGISTRY"
+        gitlab_rails['registry_key_path'] = "/etc/gitlab/registry-certs/registry-auth.key"
+        gitlab_rails['registry_cert_path'] = "/etc/gitlab/registry-certs/registry-auth.crt"
+        gitlab_rails['registry_issuer'] = "gitlab-issuer"
+        gitlab_rails['listen_https'] = false
+        registry_nginx['ssl_certificate_key'] = "/etc/gitlab/trusted-certs/YOUR_SSL_KEY.key.pem"
+        registry_nginx['ssl_certificate'] = "/etc/gitlab/trusted-certs/YOUR_SSL_CERTIFICATE.crt.pem"
+
+    volumes:
+      - './gitlab-data/config:/etc/gitlab'
+      - './gitlab-data/data:/var/opt/gitlab'
+      - './gitlab-data/logs:/var/logs/gitlab'
+      - './gitlab-backups/backup:/var/opt/gitlab/backups'
+      - './trusted-certs:/etc/gitlab/trusted-certs'
+      - './registry-certs:/etc/gitlab/registry-certs'
+    ports:
+      - '443:443'
+      - '80:80'
+      - '22:22' # must be equal to gitlab_shell_ssh_port (line 11) like 422:22
+    networks:
+      - default
+      - gitlab_internal
+      - gitlab_external
+    links:
+      - registry:registry
+  registry:
+    restart: always
+    hostname: 'YOUR_HOSTNAME'
+    image: registry
+    volumes:
+      - './registry-data:/registry'
+      - './registry-certs:/certs'
+      - './trusted-certs:/tls'
+    environment:
+      - REGISTRY_LOG_LEVEL=info
+      - REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY=/registry
+      - REGISTRY_AUTH_TOKEN_REALM=https://YOUR_GITLAB_DOMAIN/jwt/auth
+      - REGISTRY_AUTH_TOKEN_SERVICE=container_registry
+      - REGISTRY_AUTH_TOKEN_ISSUER=gitlab-issuer
+      - REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE=/certs/registry-auth.crt
+      - REGISTRY_HTTP_SECRET=YOUR_SECRET
+      - REGISTRY_STORAGE_DELETE_ENABLED=true
+      - REGISTRY_HTTP_TLS_KEY=/tls/YOUR_SSL_KEY_FOR_GITLAB.key.pem
+      - REGISTRY_HTTP_TLS_CERTIFICATE=/tls/YOUR_SSL_CERTIFICATE_FOR_GITLAB.crt.pem
+    networks:
+      - default
+      - gitlab_internal
+      - gitlab_external
+    expose:
+      - 5000
+    ports:
+      - "5000:5000"
+  runner:
+    restart: always
+    hostname: 'YOUR_HOSTNAME'
+    image: gitlab/gitlab-runner:latest
+    volumes:
+      - './gitlab-runner/config:/etc/gitlab-runner'
+      - './registry-certs:/etc/gitlab-runner/registry/'
+      -  '/etc/docker/certs.d:/etc/docker/certs.d:ro'
+      - '/var/run/docker.sock:/var/run/docker.sock'
+    networks:
+      - default
+      - gitlab_internal
+      - gitlab_external
+networks:
+  gitlab_internal:
+    driver: bridge
+  gitlab_external:
+    external: true
